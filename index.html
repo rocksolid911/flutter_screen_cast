@@ -2,208 +2,104 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Screen Cast Receiver</title>
+    <title>Test Cast Receiver</title>
     <style>
         body {
             margin: 0;
-            padding: 0;
+            padding: 20px;
             background: #000;
-            color: #fff;
-            font-family: Arial, sans-serif;
-            overflow: hidden;
-        }
-        
-        #container {
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        #screen-display {
-            width: 100%;
-            height: 100%;
-            background: #000;
-            display: none;
-        }
-        
-        #status {
-            position: absolute;
-            top: 20px;
-            left: 20px;
+            color: #0f0;
+            font-family: monospace;
             font-size: 24px;
-            z-index: 1000;
         }
-        
-        #waiting-message {
-            text-align: center;
-            font-size: 48px;
-            color: #fff;
-        }
-        
-        .status-connected {
-            color: #00ff00;
-        }
-        
-        .status-waiting {
-            color: #ffff00;
-        }
-        
-        .status-error {
-            color: #ff0000;
-        }
+        .status { color: #ff0; }
+        .error { color: #f00; }
+        .success { color: #0f0; }
     </style>
 </head>
 <body>
-    <div id="container">
-        <div id="status" class="status-waiting">📱 Waiting for phone connection...</div>
-        
-        <div id="waiting-message">
-            <h1>🎬 Screen Cast Receiver</h1>
-            <p>Ready to receive screen from your Flutter app!</p>
-            <p id="connection-info">Initializing...</p>
-        </div>
-        
-        <img id="screen-display" alt="Phone Screen" />
-    </div>
+    <h1>🎬 Cast Receiver Test - App ID: 7D1A32C2</h1>
+    <p id="status" class="status">Initializing Cast Receiver...</p>
+    <div id="logs"></div>
 
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script>
-        console.log('🚀 Screen Cast Receiver starting...');
+        const statusEl = document.getElementById('status');
+        const logsEl = document.getElementById('logs');
         
-        // Initialize Cast Receiver
-        const castReceiverContext = cast.framework.CastReceiverContext.getInstance();
-        const playerManager = castReceiverContext.getPlayerManager();
-        
-        // Set up custom message namespace - THIS MUST MATCH YOUR FLUTTER APP!
-        const SCREEN_CAST_NAMESPACE = 'urn:x-cast:com.isvisoft.flutter_screen_recording';
-        
-        // UI elements
-        const statusDiv = document.getElementById('status');
-        const waitingMessage = document.getElementById('waiting-message');
-        const screenDisplay = document.getElementById('screen-display');
-        const connectionInfo = document.getElementById('connection-info');
-        
-        function updateStatus(message, className = 'status-waiting') {
-            statusDiv.textContent = message;
-            statusDiv.className = className;
-            console.log('📱 Status:', message);
-        }
-        
-        function updateConnectionInfo(info) {
-            connectionInfo.textContent = info;
-        }
-        
-        // Handle custom messages from your Flutter app
-        castReceiverContext.addCustomMessageListener(SCREEN_CAST_NAMESPACE, (customEvent) => {
-            console.log('📨 Received message from Flutter app:', customEvent);
+        function log(message, type = 'success') {
+            console.log(message);
+            const logEntry = document.createElement('div');
+            logEntry.className = type;
+            logEntry.textContent = new Date().toLocaleTimeString() + ': ' + message;
+            logsEl.appendChild(logEntry);
             
-            try {
-                const message = JSON.parse(customEvent.data);
-                console.log('📋 Parsed message:', message);
-                
-                switch (message.type) {
-                    case 'test':
-                        console.log('✅ Test message received:', message.message);
-                        updateStatus('📱 Connected to Flutter app!', 'status-connected');
-                        updateConnectionInfo(`Test: ${message.message}`);
-                        
-                        // Send response back to Flutter app
-                        customEvent.sendMessage({
-                            type: 'test_response',
-                            status: 'success',
-                            message: 'TV received your test message!'
-                        });
-                        break;
-                        
-                    case 'screen_frame':
-                        console.log('🖼️ Screen frame received, size:', message.data?.length || 0);
-                        updateStatus('🎬 Casting screen...', 'status-connected');
-                        
-                        if (message.data) {
-                            // Display the screen frame
-                            screenDisplay.src = 'data:image/jpeg;base64,' + message.data;
-                            screenDisplay.style.display = 'block';
-                            waitingMessage.style.display = 'none';
-                            
-                            updateConnectionInfo(`Frame: ${message.timestamp}`);
-                        }
-                        break;
-                        
-                    case 'stop_casting':
-                        console.log('🛑 Stop casting received');
-                        updateStatus('📱 Casting stopped', 'status-waiting');
-                        screenDisplay.style.display = 'none';
-                        waitingMessage.style.display = 'block';
-                        updateConnectionInfo('Casting stopped');
-                        break;
-                        
-                    default:
-                        console.log('❓ Unknown message type:', message.type);
-                        updateStatus('❓ Unknown message received', 'status-error');
+            // Keep only last 10 log entries
+            while (logsEl.children.length > 10) {
+                logsEl.removeChild(logsEl.firstChild);
+            }
+        }
+        
+        try {
+            log('🚀 Starting Cast Receiver for App ID: 7D1A32C2');
+            statusEl.textContent = '🔄 Starting Cast Receiver...';
+            
+            // Initialize Cast Receiver
+            const castReceiverContext = cast.framework.CastReceiverContext.getInstance();
+            
+            // Handle sender connections
+            castReceiverContext.addEventListener(
+                cast.framework.system.EventType.SENDER_CONNECTED,
+                (event) => {
+                    log('📱 Sender connected: ' + event.senderId, 'success');
+                    statusEl.textContent = '✅ Connected to sender!';
                 }
-                
-            } catch (error) {
-                console.error('❌ Error parsing message:', error);
-                updateStatus('❌ Message parsing error', 'status-error');
-            }
-        });
-        
-        // Handle sender connections
-        castReceiverContext.addEventListener(
-            cast.framework.system.EventType.SENDER_CONNECTED,
-            (event) => {
-                console.log('📱 Sender connected:', event.senderId);
-                updateStatus('📱 Phone connected!', 'status-connected');
-                updateConnectionInfo(`Connected: ${event.senderId}`);
-            }
-        );
-        
-        castReceiverContext.addEventListener(
-            cast.framework.system.EventType.SENDER_DISCONNECTED,
-            (event) => {
-                console.log('📱 Sender disconnected:', event.senderId);
-                updateStatus('📱 Phone disconnected', 'status-waiting');
-                updateConnectionInfo('Disconnected');
-                
-                // Hide screen display when disconnected
-                screenDisplay.style.display = 'none';
-                waitingMessage.style.display = 'block';
-            }
-        );
-        
-        // Handle ready event
-        castReceiverContext.addEventListener(
-            cast.framework.system.EventType.READY,
-            () => {
-                console.log('✅ Cast Receiver ready!');
-                updateStatus('✅ Ready for connections', 'status-waiting');
-                updateConnectionInfo('Ready to receive');
-            }
-        );
-        
-        // Start the receiver
-        const castReceiverOptions = new cast.framework.CastReceiverOptions();
-        castReceiverOptions.disableIdleTimeout = true; // Keep running even when idle
-        
-        console.log('🎬 Starting Cast Receiver with options:', castReceiverOptions);
-        castReceiverContext.start(castReceiverOptions);
-        
-        // Debug: Log all available namespaces
-        console.log('📋 Registered custom namespace:', SCREEN_CAST_NAMESPACE);
-        
-        // Test function for debugging
-        window.testReceiver = function() {
-            console.log('🧪 Testing receiver...');
-            updateStatus('🧪 Test mode active', 'status-connected');
-            updateConnectionInfo('Test mode');
-        };
-        
-        console.log('🎬 Screen Cast Receiver initialized!');
-        console.log('📋 Listening for messages on namespace:', SCREEN_CAST_NAMESPACE);
+            );
+            
+            castReceiverContext.addEventListener(
+                cast.framework.system.EventType.SENDER_DISCONNECTED,
+                (event) => {
+                    log('📱 Sender disconnected: ' + event.senderId, 'status');
+                    statusEl.textContent = '❌ Sender disconnected';
+                }
+            );
+            
+            castReceiverContext.addEventListener(
+                cast.framework.system.EventType.READY,
+                () => {
+                    log('✅ Cast Receiver ready for App ID: 7D1A32C2', 'success');
+                    statusEl.textContent = '🎯 Ready for connections (App ID: 7D1A32C2)';
+                }
+            );
+            
+            // Listen for custom messages
+            castReceiverContext.addCustomMessageListener(
+                'urn:x-cast:com.isvisoft.flutter_screen_recording',
+                (customEvent) => {
+                    log('📨 Received message: ' + customEvent.data, 'success');
+                    
+                    try {
+                        const message = JSON.parse(customEvent.data);
+                        if (message.type === 'screen_frame') {
+                            log('🖼️ Screen frame received', 'success');
+                        }
+                    } catch (e) {
+                        log('❌ Error parsing message: ' + e.message, 'error');
+                    }
+                }
+            );
+            
+            // Start the receiver
+            const castReceiverOptions = new cast.framework.CastReceiverOptions();
+            castReceiverOptions.disableIdleTimeout = true;
+            
+            log('🎬 Starting Cast Receiver with options...', 'status');
+            castReceiverContext.start(castReceiverOptions);
+            
+        } catch (error) {
+            log('❌ Error initializing Cast Receiver: ' + error.message, 'error');
+            statusEl.textContent = '❌ Failed to initialize';
+        }
     </script>
 </body>
 </html>
