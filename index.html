@@ -3,253 +3,266 @@
 <head>
     <meta charset="utf-8">
     <title>Screen Mirror Cast Receiver - App ID: 7D1A32C2</title>
+    <!-- Add CORS meta tag to help with image loading -->
+    <meta http-equiv="Content-Security-Policy" content="default-src * 'unsafe-inline' 'unsafe-eval' data: blob:;">
     <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background: #000;
-            color: #0f0;
-            font-family: monospace;
-            overflow: hidden;
-        }
-        .container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-        }
-        .screen-image {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
-        .debug-panel {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            background: rgba(0,0,0,0.7);
-            color: lime;
-            padding: 10px;
-            font-size: 12px;
-            max-width: 80%;
-            z-index: 10;
-        }
-        .raw-data {
-            position: absolute;
-            bottom: 10px;
-            left: 10px;
-            right: 10px;
-            background: rgba(0,0,0,0.7);
-            color: lime;
-            padding: 5px;
-            font-size: 10px;
-            max-height: 100px;
-            overflow: hidden;
-            word-break: break-all;
-        }
-        .show-raw {
-            position: absolute;
-            bottom: 120px;
-            left: 10px;
-            background: #333;
-            color: white;
-            border: none;
-            padding: 5px 10px;
-        }
+        // ...existing code...
     </style>
 </head>
 <body>
     <div class="container">
-        <img id="screen" class="screen-image" />
+        <img id="screen" class="screen-image" crossorigin="anonymous" />
 
-        <div id="debug" class="debug-panel">
-            <div>Status: <span id="status">Initializing...</span></div>
-            <div>Frames: <span id="frames">0</span></div>
-            <div>Last Error: <span id="error">None</span></div>
-            <div>Type: <span id="msgType">None</span></div>
-        </div>
-
-        <button id="showRaw" class="show-raw">Show/Hide Raw Data</button>
-        <div id="rawData" class="raw-data" style="display:none;"></div>
+        <!-- Debug and test panels remain unchanged -->
+        // ...existing code...
     </div>
 
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script>
-        // Simple counter to track frames
-        let frameCount = 0;
-        let errorCount = 0;
-        let rawVisible = false;
+        // Counters and state
+        // ...existing code...
 
         // Elements
-        const screenEl = document.getElementById('screen');
-        const statusEl = document.getElementById('status');
-        const framesEl = document.getElementById('frames');
-        const errorEl = document.getElementById('error');
-        const msgTypeEl = document.getElementById('msgType');
-        const rawDataEl = document.getElementById('rawData');
-        const showRawBtn = document.getElementById('showRaw');
+        // ...existing code...
 
-        // Toggle raw data visibility
-        showRawBtn.addEventListener('click', () => {
-            rawVisible = !rawVisible;
-            rawDataEl.style.display = rawVisible ? 'block' : 'none';
-        });
+        // Image event listeners for debugging
+        screenEl.onload = function() {
+            log('✅ Image loaded successfully!');
+            imageStatusEl.textContent = 'Loaded ✅';
+            imageDemsEl.textContent = `${this.naturalWidth}x${this.naturalHeight}`;
+            imageSrcLenEl.textContent = this.src.length;
+        };
+
+        screenEl.onerror = function(e) {
+            logError('❌ Image failed to load: ' + e.type);
+            imageStatusEl.textContent = 'Failed ❌';
+            // Try to recover with a delayed retry
+            setTimeout(() => {
+                if (lastImageData) {
+                    log('🔄 Retrying failed image load...');
+                    displayFrame(lastImageData);
+                }
+            }, 500);
+        };
+
+        // ...existing code...
 
         // Initialize cast receiver
         function initReceiver() {
             try {
-                // Log to both console and UI
-                log('Starting minimal Cast receiver');
+                log('🚀 Starting enhanced Cast receiver with debugging');
                 updateStatus('Starting...');
 
-                // Simple options
                 const options = new cast.framework.CastReceiverOptions();
                 options.disableIdleTimeout = true;
+                
+                // Add custom messaging options
+                options.customNamespaces = {
+                    'urn:x-cast:com.isvisoft.flutter_screen_recording': cast.framework.system.MessageType.STRING
+                };
 
-                // Get context
                 const context = cast.framework.CastReceiverContext.getInstance();
 
-                // Basic event listeners
-                context.addEventListener(cast.framework.system.EventType.READY, () => {
-                    log('Receiver is ready');
-                    updateStatus('Ready');
-                });
+                // ...existing code...
 
-                context.addEventListener(cast.framework.system.EventType.SENDER_CONNECTED, (e) => {
-                    log('Sender connected: ' + e.senderId);
-                    updateStatus('Connected');
-                });
-
-                context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (e) => {
-                    log('Sender disconnected: ' + e.senderId);
-                    updateStatus('Disconnected');
-                    screenEl.src = '';
-                });
-
-                // Listen on the custom namespace
+                // Listen on the custom namespace with more robust error handling
                 context.addCustomMessageListener('urn:x-cast:com.isvisoft.flutter_screen_recording', (event) => {
-                    handleMessage(event.data);
+                    try {
+                        log(`📨 Received message from sender: ${event.senderId}`);
+                        handleMessage(event.data);
+                    } catch (err) {
+                        logError(`💥 Critical error in message listener: ${err.message}`);
+                        console.error(err);
+                    }
                 });
 
-                // Start the receiver
+                // Start with debug logging enabled
                 context.start(options);
-                log('Receiver initialized successfully');
+                log('✅ Receiver initialized successfully');
 
             } catch (e) {
-                logError('Initialization failed: ' + e.message);
+                logError('❌ Initialization failed: ' + e.message);
                 updateStatus('Init failed');
             }
         }
 
-        // Handle incoming messages
+        // Handle incoming messages with improved error handling
         function handleMessage(data) {
             try {
-                // First display the raw data for debugging
+                messageCount++;
+                messageCountEl.textContent = messageCount;
+
+                log(`📨 Message #${messageCount} received`);
+                
+                // Show raw data
                 showRawMessage(data);
 
-                // Now try to parse and process it
+                // Get data size
+                const dataSize = typeof data === 'string' ? data.length : JSON.stringify(data).length;
+                dataSizeEl.textContent = `${dataSize} bytes`;
+                log(`📏 Message size: ${dataSize} bytes`);
+
                 let message;
                 if (typeof data === 'string') {
-                    // Try to parse as JSON
                     try {
                         message = JSON.parse(data);
                         msgTypeEl.textContent = message.type || 'unknown';
+                        log(`📋 Message type: ${message.type}`);
 
-                        // Handle both screen_frame and screenframe for compatibility
-                        if ((message.type === 'screen_frame' || message.type === 'screenframe') && 
-                            (message.data || message.datat)) {
+                        if (message.type === 'screen_frame' && message.data) {
+                            log('🎯 Processing screen_frame message');
                             
-                            // Use either data or datat field
-                            const imageData = message.data || message.datat;
-                            displayFrame(imageData);
+                            const imageData = message.data;
+                            log(`🖼️ Image data length: ${imageData.length}`);
+                            
+                            // Validate base64
+                            const isValidBase64 = validateBase64(imageData);
+                            base64ValidEl.textContent = isValidBase64 ? 'Valid ✅' : 'Invalid ❌';
+                            log(`🔍 Base64 valid: ${isValidBase64}`);
+                            
+                            if (isValidBase64) {
+                                displayFrame(imageData);
+                            } else {
+                                logError('❌ Invalid base64 data received');
+                                // Try to fix common base64 issues
+                                const fixedData = fixBase64Data(imageData);
+                                if (fixedData !== imageData) {
+                                    log('🔧 Attempting with fixed base64 data...');
+                                    displayFrame(fixedData);
+                                }
+                            }
                         } else {
-                            log('Unknown message format: ' + JSON.stringify(message));
+                            log(`⚠️ Unknown/incomplete message: ${JSON.stringify(message).substring(0, 200)}`);
                         }
                     } catch (jsonError) {
-                        logError('JSON parsing error: ' + jsonError.message);
-
-                        // Try multiple regex patterns to extract data
-                        const patterns = [
-                            /"data":"([^"]+)"/,
-                            /"datat":"([^"]+)"/
-                        ];
+                        logError('❌ JSON parsing error: ' + jsonError.message);
+                        log(`📄 Raw data preview: ${data.substring(0, 200)}...`);
                         
-                        for (const pattern of patterns) {
-                            const match = data.match(pattern);
-                            if (match && match[1]) {
-                                log('Extracted data using pattern: ' + pattern);
-                                displayFrame(match[1]);
-                                break;
+                        // Try to extract base64 data with regex - more robust pattern
+                        const dataMatch = data.match(/"data":"([^"]+?)(?:","timestamp|"})/);
+                        if (dataMatch && dataMatch[1]) {
+                            log('🎯 Extracted data with regex');
+                            const imageData = dataMatch[1];
+                            const isValidBase64 = validateBase64(imageData);
+                            base64ValidEl.textContent = isValidBase64 ? 'Valid ✅' : 'Invalid ❌';
+                            
+                            if (isValidBase64) {
+                                displayFrame(imageData);
                             }
                         }
                     }
                 } else {
-                    logError('Received non-string message');
+                    logError('❌ Received non-string message');
                 }
             } catch (e) {
-                logError('Error handling message: ' + e.message);
+                logError('❌ Error handling message: ' + e.message);
+                console.error('Full error:', e);
             }
         }
 
-        // Display the frame on screen
+        // Fix common base64 issues
+        function fixBase64Data(str) {
+            // Replace URL-safe chars with standard base64 chars
+            return str.replace(/-/g, '+').replace(/_/g, '/');
+        }
+
+        // Validate base64 string with better error handling
+        function validateBase64(str) {
+            if (!str) return false;
+            
+            try {
+                // Check if it looks like base64 (valid chars and length)
+                if (!/^[A-Za-z0-9+/=]+$/.test(str)) {
+                    return false;
+                }
+                
+                // Check if it can be decoded/encoded
+                return btoa(atob(str)) === str;
+            } catch (e) {
+                console.error('Base64 validation error:', e);
+                return false;
+            }
+        }
+
+        // Display the frame on screen with better error handling
         function displayFrame(base64Data) {
             try {
-                // Set the image source to the base64 data
-                screenEl.src = 'data:image/jpeg;base64,' + base64Data;
-
-                // Update counter
-                frameCount++;
-                framesEl.textContent = frameCount;
-                updateStatus('Streaming');
+                log('🎬 Attempting to display frame...');
+                
+                lastImageData = base64Data;
+                lastDecodeEl.textContent = new Date().toLocaleTimeString();
+                
+                // Set image status to loading
+                imageStatusEl.textContent = 'Loading...';
+                
+                // Create the data URL with explicit MIME type
+                const dataUrl = 'data:image/jpeg;base64,' + base64Data;
+                log(`🔗 Data URL length: ${dataUrl.length}`);
+                
+                // Set the image source with error handling
+                const img = new Image();
+                img.onload = function() {
+                    // When pre-loading succeeds, update the visible image
+                    screenEl.src = dataUrl;
+                    log('✅ Image pre-loaded successfully');
+                    
+                    frameCount++;
+                    framesEl.textContent = frameCount;
+                    updateStatus('Streaming');
+                };
+                
+                img.onerror = function(e) {
+                    logError(`❌ Image pre-load failed: ${e.type}`);
+                    // Still try to set it directly as a fallback
+                    screenEl.src = dataUrl;
+                };
+                
+                // Start loading the image
+                img.src = dataUrl;
 
             } catch (e) {
-                logError('Display error: ' + e.message);
+                logError('❌ Display error: ' + e.message);
+                imageStatusEl.textContent = 'Error ❌';
             }
         }
 
-        // Show raw message data
-        function showRawMessage(data) {
-            try {
-                let displayData = typeof data === 'string' ? data : JSON.stringify(data);
-
-                // Truncate if too long
-                if (displayData.length > 200) {
-                    displayData = displayData.substring(0, 100) + '...' +
-                        displayData.substring(displayData.length - 100);
-                }
-
-                rawDataEl.textContent = displayData;
-            } catch (e) {
-                rawDataEl.textContent = 'Error showing raw data: ' + e.message;
-            }
-        }
-
-        // Helper functions
-        function log(message) {
-            console.log('[Receiver] ' + message);
-        }
-
-        function logError(message) {
-            console.error('[Receiver] ' + message);
-            errorCount++;
-            errorEl.textContent = message;
-        }
-
-        function updateStatus(status) {
-            statusEl.textContent = status;
-        }
+        // ...existing code...
 
         // Initialize when DOM is loaded
         document.addEventListener('DOMContentLoaded', () => {
+            log('🎯 DOM loaded, checking Cast framework...');
+            
             if (typeof cast !== 'undefined' && cast.framework) {
+                log('✅ Cast framework found');
                 initReceiver();
             } else {
-                logError('Cast framework not found');
+                logError('❌ Cast framework not found');
                 updateStatus('Cast SDK missing');
+                
+                // More aggressive retry
+                let retryCount = 0;
+                const maxRetries = 5;
+                const retryInterval = setInterval(() => {
+                    retryCount++;
+                    log(`🔄 Retry attempt ${retryCount}/${maxRetries} to load Cast framework...`);
+                    
+                    if (typeof cast !== 'undefined' && cast.framework) {
+                        log('✅ Cast framework loaded on retry');
+                        clearInterval(retryInterval);
+                        initReceiver();
+                    } else if (retryCount >= maxRetries) {
+                        clearInterval(retryInterval);
+                        logError('❌ Cast framework could not be loaded after retries');
+                    }
+                }, 2000);
             }
         });
+
+        // Test with sample image on startup
+        setTimeout(() => {
+            log('🧪 Auto-testing with sample image in 3 seconds...');
+            testImage();
+        }, 3000);
     </script>
 </body>
 </html>
