@@ -12,301 +12,399 @@
             font-family: monospace;
             overflow: hidden;
         }
-        
         .container {
             position: relative;
             width: 100vw;
             height: 100vh;
         }
-        
-        .screen-display {
+        .screen-image {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: #000;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        
-        .screen-image {
-            max-width: 100%;
-            max-height: 100%;
             object-fit: contain;
+            border: 2px solid lime; /* Visual indicator */
         }
-        
-        .status-overlay {
+        .debug-panel {
             position: absolute;
-            top: 20px;
-            left: 20px;
-            background: rgba(0, 0, 0, 0.8);
-            color: #0f0;
+            top: 10px;
+            left: 10px;
+            background: rgba(0,0,0,0.9);
+            color: lime;
             padding: 10px;
-            border-radius: 5px;
-            font-size: 14px;
-            z-index: 1000;
+            font-size: 12px;
+            max-width: 40%;
+            z-index: 10;
+            border: 1px solid lime;
         }
-        
-        .waiting-message {
-            text-align: center;
-            color: #fff;
-            font-size: 24px;
+        .test-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.9);
+            color: yellow;
+            padding: 10px;
+            font-size: 12px;
+            max-width: 40%;
+            z-index: 10;
+            border: 1px solid yellow;
         }
-        
-        .error { color: #f00; }
-        .success { color: #0f0; }
-        .warning { color: #ff0; }
+        .raw-data {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.9);
+            color: lime;
+            padding: 5px;
+            font-size: 10px;
+            max-height: 100px;
+            overflow: auto;
+            word-break: break-all;
+            border: 1px solid lime;
+        }
+        .show-raw {
+            position: absolute;
+            bottom: 120px;
+            left: 10px;
+            background: #333;
+            color: white;
+            border: 1px solid lime;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .test-buttons {
+            position: absolute;
+            bottom: 120px;
+            right: 10px;
+        }
+        .test-buttons button {
+            background: #333;
+            color: yellow;
+            border: 1px solid yellow;
+            padding: 5px 10px;
+            margin: 2px;
+            cursor: pointer;
+            display: block;
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="screenDisplay" class="screen-display">
-            <div class="waiting-message">
-                🎬 Ready for Screen Mirroring<br>
-                <small>App ID: 7D1A32C2</small>
-            </div>
+        <img id="screen" class="screen-image" />
+
+        <div id="debug" class="debug-panel">
+            <div><strong>🎬 CAST RECEIVER DEBUG</strong></div>
+            <div>Status: <span id="status">Initializing...</span></div>
+            <div>Messages: <span id="messageCount">0</span></div>
+            <div>Frames: <span id="frames">0</span></div>
+            <div>Data Size: <span id="dataSize">0 bytes</span></div>
+            <div>Image Load: <span id="imageStatus">None</span></div>
+            <div>Last Error: <span id="error">None</span></div>
+            <div>Message Type: <span id="msgType">None</span></div>
         </div>
-        
-        <div id="statusOverlay" class="status-overlay">
-            <div id="status">🔄 Initializing...</div>
-            <div id="stats">Frames: 0 | FPS: 0 | Chunks: 0</div>
+
+        <div id="testPanel" class="test-panel">
+            <div><strong>🧪 TEST PANEL</strong></div>
+            <div>Image Dimensions: <span id="imageDims">Unknown</span></div>
+            <div>Image Source Length: <span id="imageSrcLen">0</span></div>
+            <div>Base64 Valid: <span id="base64Valid">Unknown</span></div>
+            <div>Last Decode: <span id="lastDecode">Never</span></div>
         </div>
+
+        <div class="test-buttons">
+            <button onclick="testImage()">Test Sample Image</button>
+            <button onclick="clearImage()">Clear Image</button>
+            <button onclick="showImageInfo()">Show Image Info</button>
+        </div>
+
+        <button id="showRaw" class="show-raw">Show/Hide Raw Data</button>
+        <div id="rawData" class="raw-data" style="display:none;"></div>
     </div>
 
     <script src="//www.gstatic.com/cast/sdk/libs/caf_receiver/v3/cast_receiver_framework.js"></script>
     <script>
-        class ScreenMirrorReceiver {
-            constructor() {
-                this.statusEl = document.getElementById('status');
-                this.statsEl = document.getElementById('stats');
-                this.screenDisplayEl = document.getElementById('screenDisplay');
-                this.currentImageEl = null;
-                
-                // Statistics
-                this.frameCount = 0;
-                this.chunkCount = 0;
-                this.lastFpsTime = Date.now();
-                this.fpsCounter = 0;
-                this.currentFps = 0;
-                
-                // Chunked frame assembly
-                this.frameChunks = new Map(); // frameId -> chunks array
-                this.frameMetadata = new Map(); // frameId -> {totalChunks, receivedChunks}
-                
-                this.init();
-            }
-            
-            init() {
-                try {
-                    this.log('🚀 Starting Screen Mirror Receiver');
-                    
-                    const castReceiverContext = cast.framework.CastReceiverContext.getInstance();
-                    
-                    // Handle connections
-                    castReceiverContext.addEventListener(
-                        cast.framework.system.EventType.SENDER_CONNECTED,
-                        (event) => {
-                            this.log(`📱 Sender connected: ${event.senderId}`, 'success');
-                            this.updateStatus('✅ Connected - Ready for screen mirroring');
-                        }
-                    );
-                    
-                    castReceiverContext.addEventListener(
-                        cast.framework.system.EventType.SENDER_DISCONNECTED,
-                        (event) => {
-                            this.log(`📱 Sender disconnected: ${event.senderId}`, 'warning');
-                            this.updateStatus('❌ Sender disconnected');
-                            this.clearScreen();
-                        }
-                    );
-                    
-                    castReceiverContext.addEventListener(
-                        cast.framework.system.EventType.READY,
-                        () => {
-                            this.log('✅ Cast Receiver ready for screen mirroring', 'success');
-                            this.updateStatus('🎯 Ready for connections');
-                        }
-                    );
-                    
-                    // Listen for screen frame messages
-                    castReceiverContext.addCustomMessageListener(
-                        'urn:x-cast:com.isvisoft.flutter_screen_recording',
-                        (customEvent) => {
-                            this.handleMessage(customEvent);
-                        }
-                    );
-                    
-                    // Start the receiver
-                    const options = new cast.framework.CastReceiverOptions();
-                    options.disableIdleTimeout = true;
-                    options.maxInactivity = 3600; // 1 hour
-                    
-                    castReceiverContext.start(options);
-                    
-                    // Start stats update interval
-                    setInterval(() => this.updateStats(), 1000);
-                    
-                } catch (error) {
-                    this.log(`❌ Initialization error: ${error.message}`, 'error');
-                    this.updateStatus('❌ Failed to initialize');
-                }
-            }
-            
-            handleMessage(customEvent) {
-                try {
-                    const message = JSON.parse(customEvent.data);
-                    
-                    switch (message.type) {
-                        case 'screen_frame':
-                            this.handleSingleFrame(message);
-                            break;
-                            
-                        case 'screen_frame_chunk':
-                            this.handleFrameChunk(message);
-                            break;
-                            
-                        case 'control':
-                            this.handleControlMessage(message);
-                            break;
-                            
-                        default:
-                            this.log(`⚠️ Unknown message type: ${message.type}`, 'warning');
-                    }
-                    
-                } catch (e) {
-                    this.log(`❌ Error parsing message: ${e.message}`, 'error');
-                }
-            }
-            
-            handleSingleFrame(message) {
-                try {
-                    this.displayFrame(message.data, message.width, message.height);
-                    this.frameCount++;
-                    this.fpsCounter++;
-                    
-                } catch (e) {
-                    this.log(`❌ Error handling single frame: ${e.message}`, 'error');
-                }
-            }
-            
-            handleFrameChunk(message) {
-                try {
-                    const { frameId, chunkIndex, totalChunks, data } = message;
-                    
-                    // Initialize frame data if first chunk
-                    if (!this.frameChunks.has(frameId)) {
-                        this.frameChunks.set(frameId, new Array(totalChunks));
-                        this.frameMetadata.set(frameId, { totalChunks, receivedChunks: 0 });
-                    }
-                    
-                    // Store chunk
-                    this.frameChunks.get(frameId)[chunkIndex] = data;
-                    const metadata = this.frameMetadata.get(frameId);
-                    metadata.receivedChunks++;
-                    this.chunkCount++;
-                    
-                    // Check if frame is complete
-                    if (metadata.receivedChunks === metadata.totalChunks) {
-                        this.assembleAndDisplayFrame(frameId);
-                    }
-                    
-                } catch (e) {
-                    this.log(`❌ Error handling chunk: ${e.message}`, 'error');
-                }
-            }
-            
-            assembleAndDisplayFrame(frameId) {
-                try {
-                    const chunks = this.frameChunks.get(frameId);
-                    const combinedData = chunks.join('');
-                    
-                    // Clean up
-                    this.frameChunks.delete(frameId);
-                    this.frameMetadata.delete(frameId);
-                    
-                    // Display assembled frame
-                    this.displayFrame(combinedData);
-                    this.frameCount++;
-                    this.fpsCounter++;
-                    
-                } catch (e) {
-                    this.log(`❌ Error assembling frame: ${e.message}`, 'error');
-                }
-            }
-            
-            displayFrame(base64Data, width, height) {
-                try {
-                    // Create or update image element
-                    if (!this.currentImageEl) {
-                        this.currentImageEl = document.createElement('img');
-                        this.currentImageEl.className = 'screen-image';
-                        this.screenDisplayEl.innerHTML = '';
-                        this.screenDisplayEl.appendChild(this.currentImageEl);
-                    }
-                    
-                    // Update image source
-                    this.currentImageEl.src = `data:image/jpeg;base64,${base64Data}`;
-                    
-                    // Update status to show active mirroring
-                    this.updateStatus('📺 Screen mirroring active');
-                    
-                } catch (e) {
-                    this.log(`❌ Error displaying frame: ${e.message}`, 'error');
-                }
-            }
-            
-            handleControlMessage(message) {
-                this.log(`🎮 Control: ${message.action}`, 'success');
-                
-                switch (message.action) {
-                    case 'display_paused':
-                        this.updateStatus('⏸️ Display paused');
-                        break;
-                    case 'display_resumed':
-                        this.updateStatus('▶️ Display resumed');
-                        break;
-                    case 'display_stopped':
-                        this.updateStatus('⏹️ Display stopped');
-                        this.clearScreen();
-                        break;
-                }
-            }
-            
-            clearScreen() {
-                this.screenDisplayEl.innerHTML = `
-                    <div class="waiting-message">
-                        🎬 Ready for Screen Mirroring<br>
-                        <small>App ID: 7D1A32C2</small>
-                    </div>
-                `;
-                this.currentImageEl = null;
-            }
-            
-            updateStats() {
-                const now = Date.now();
-                if (now - this.lastFpsTime >= 1000) {
-                    this.currentFps = this.fpsCounter;
-                    this.fpsCounter = 0;
-                    this.lastFpsTime = now;
-                }
-                
-                this.statsEl.textContent = 
-                    `Frames: ${this.frameCount} | FPS: ${this.currentFps} | Chunks: ${this.chunkCount}`;
-            }
-            
-            updateStatus(text) {
-                this.statusEl.textContent = text;
-            }
-            
-            log(message, type = 'success') {
-                console.log(`[${new Date().toLocaleTimeString()}] ${message}`);
+        // Counters and state
+        let frameCount = 0;
+        let messageCount = 0;
+        let errorCount = 0;
+        let rawVisible = false;
+        let lastImageData = null;
+
+        // Elements
+        const screenEl = document.getElementById('screen');
+        const statusEl = document.getElementById('status');
+        const messageCountEl = document.getElementById('messageCount');
+        const framesEl = document.getElementById('frames');
+        const dataSizeEl = document.getElementById('dataSize');
+        const imageStatusEl = document.getElementById('imageStatus');
+        const errorEl = document.getElementById('error');
+        const msgTypeEl = document.getElementById('msgType');
+        const rawDataEl = document.getElementById('rawData');
+        const showRawBtn = document.getElementById('showRaw');
+        const imageDemsEl = document.getElementById('imageDims');
+        const imageSrcLenEl = document.getElementById('imageSrcLen');
+        const base64ValidEl = document.getElementById('base64Valid');
+        const lastDecodeEl = document.getElementById('lastDecode');
+
+        // Image event listeners for debugging
+        screenEl.onload = function() {
+            log('✅ Image loaded successfully!');
+            imageStatusEl.textContent = 'Loaded ✅';
+            imageDemsEl.textContent = `${this.naturalWidth}x${this.naturalHeight}`;
+            imageSrcLenEl.textContent = this.src.length;
+        };
+
+        screenEl.onerror = function(e) {
+            logError('❌ Image failed to load: ' + e.type);
+            imageStatusEl.textContent = 'Failed ❌';
+        };
+
+        screenEl.onabort = function() {
+            log('⚠️ Image load aborted');
+            imageStatusEl.textContent = 'Aborted ⚠️';
+        };
+
+        // Toggle raw data visibility
+        showRawBtn.addEventListener('click', () => {
+            rawVisible = !rawVisible;
+            rawDataEl.style.display = rawVisible ? 'block' : 'none';
+        });
+
+        // Test functions
+        function testImage() {
+            log('🧪 Testing with sample image...');
+            // Small red square test image
+            const testBase64 = '/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwA/8A';
+            screenEl.src = 'data:image/jpeg;base64,' + testBase64;
+            imageStatusEl.textContent = 'Testing...';
+        }
+
+        function clearImage() {
+            log('🧹 Clearing image...');
+            screenEl.src = '';
+            imageStatusEl.textContent = 'Cleared';
+            imageDemsEl.textContent = 'Unknown';
+            imageSrcLenEl.textContent = '0';
+        }
+
+        function showImageInfo() {
+            log('📊 Current image info:');
+            log(`  - Source length: ${screenEl.src.length}`);
+            log(`  - Natural size: ${screenEl.naturalWidth}x${screenEl.naturalHeight}`);
+            log(`  - Complete: ${screenEl.complete}`);
+            log(`  - Current src: ${screenEl.src.substring(0, 100)}...`);
+        }
+
+        // Initialize cast receiver
+        function initReceiver() {
+            try {
+                log('🚀 Starting enhanced Cast receiver with debugging');
+                updateStatus('Starting...');
+
+                const options = new cast.framework.CastReceiverOptions();
+                options.disableIdleTimeout = true;
+
+                const context = cast.framework.CastReceiverContext.getInstance();
+
+                context.addEventListener(cast.framework.system.EventType.READY, () => {
+                    log('✅ Receiver is ready');
+                    updateStatus('Ready');
+                });
+
+                context.addEventListener(cast.framework.system.EventType.SENDER_CONNECTED, (e) => {
+                    log('📱 Sender connected: ' + e.senderId);
+                    updateStatus('Connected');
+                });
+
+                context.addEventListener(cast.framework.system.EventType.SENDER_DISCONNECTED, (e) => {
+                    log('📱 Sender disconnected: ' + e.senderId);
+                    updateStatus('Disconnected');
+                    clearImage();
+                });
+
+                // Listen on the custom namespace
+                context.addCustomMessageListener('urn:x-cast:com.isvisoft.flutter_screen_recording', (event) => {
+                    handleMessage(event.data);
+                });
+
+                context.start(options);
+                log('✅ Receiver initialized successfully');
+
+            } catch (e) {
+                logError('❌ Initialization failed: ' + e.message);
+                updateStatus('Init failed');
             }
         }
-        
-        // Initialize the receiver
-        new ScreenMirrorReceiver();
+
+        // Handle incoming messages
+        function handleMessage(data) {
+            try {
+                messageCount++;
+                messageCountEl.textContent = messageCount;
+
+                log(`📨 Message #${messageCount} received`);
+                
+                // Show raw data
+                showRawMessage(data);
+
+                // Get data size
+                const dataSize = typeof data === 'string' ? data.length : JSON.stringify(data).length;
+                dataSizeEl.textContent = `${dataSize} bytes`;
+                log(`📏 Message size: ${dataSize} bytes`);
+
+                let message;
+                if (typeof data === 'string') {
+                    try {
+                        message = JSON.parse(data);
+                        msgTypeEl.textContent = message.type || 'unknown';
+                        log(`📋 Message type: ${message.type}`);
+
+                        if (message.type === 'screen_frame' && message.data) {
+                            log('🎯 Processing screen_frame message');
+                            
+                            const imageData = message.data;
+                            log(`🖼️ Image data length: ${imageData.length}`);
+                            
+                            // Validate base64
+                            const isValidBase64 = validateBase64(imageData);
+                            base64ValidEl.textContent = isValidBase64 ? 'Valid ✅' : 'Invalid ❌';
+                            log(`🔍 Base64 valid: ${isValidBase64}`);
+                            
+                            if (isValidBase64) {
+                                displayFrame(imageData);
+                            } else {
+                                logError('❌ Invalid base64 data received');
+                            }
+                        } else {
+                            log(`⚠️ Unknown/incomplete message: ${JSON.stringify(message).substring(0, 200)}`);
+                        }
+                    } catch (jsonError) {
+                        logError('❌ JSON parsing error: ' + jsonError.message);
+                        log(`📄 Raw data preview: ${data.substring(0, 200)}...`);
+                        
+                        // Try to extract base64 data with regex
+                        const dataMatch = data.match(/"data":"([^"]+)"/);
+                        if (dataMatch && dataMatch[1]) {
+                            log('🎯 Extracted data with regex');
+                            const imageData = dataMatch[1];
+                            const isValidBase64 = validateBase64(imageData);
+                            base64ValidEl.textContent = isValidBase64 ? 'Valid ✅' : 'Invalid ❌';
+                            
+                            if (isValidBase64) {
+                                displayFrame(imageData);
+                            }
+                        }
+                    }
+                } else {
+                    logError('❌ Received non-string message');
+                }
+            } catch (e) {
+                logError('❌ Error handling message: ' + e.message);
+                console.error('Full error:', e);
+            }
+        }
+
+        // Validate base64 string
+        function validateBase64(str) {
+            try {
+                return btoa(atob(str)) === str;
+            } catch (e) {
+                return false;
+            }
+        }
+
+        // Display the frame on screen
+        function displayFrame(base64Data) {
+            try {
+                log('🎬 Attempting to display frame...');
+                
+                lastImageData = base64Data;
+                lastDecodeEl.textContent = new Date().toLocaleTimeString();
+                
+                // Set image status to loading
+                imageStatusEl.textContent = 'Loading...';
+                
+                // Create the data URL
+                const dataUrl = 'data:image/jpeg;base64,' + base64Data;
+                log(`🔗 Data URL length: ${dataUrl.length}`);
+                
+                // Set the image source
+                screenEl.src = dataUrl;
+
+                frameCount++;
+                framesEl.textContent = frameCount;
+                updateStatus('Streaming');
+                
+                log(`✅ Frame #${frameCount} set as image source`);
+
+            } catch (e) {
+                logError('❌ Display error: ' + e.message);
+                imageStatusEl.textContent = 'Error ❌';
+            }
+        }
+
+        // Show raw message data
+        function showRawMessage(data) {
+            try {
+                let displayData = typeof data === 'string' ? data : JSON.stringify(data);
+
+                if (displayData.length > 400) {
+                    displayData = displayData.substring(0, 200) + 
+                        '\n... [' + (displayData.length - 400) + ' more chars] ...\n' +
+                        displayData.substring(displayData.length - 200);
+                }
+
+                rawDataEl.textContent = displayData;
+            } catch (e) {
+                rawDataEl.textContent = 'Error showing raw data: ' + e.message;
+            }
+        }
+
+        // Helper functions
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            console.log(`[${timestamp}] ${message}`);
+        }
+
+        function logError(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            console.error(`[${timestamp}] ${message}`);
+            errorCount++;
+            errorEl.textContent = message;
+        }
+
+        function updateStatus(status) {
+            statusEl.textContent = status;
+        }
+
+        // Initialize when DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            log('🎯 DOM loaded, checking Cast framework...');
+            
+            if (typeof cast !== 'undefined' && cast.framework) {
+                log('✅ Cast framework found');
+                initReceiver();
+            } else {
+                logError('❌ Cast framework not found');
+                updateStatus('Cast SDK missing');
+                
+                // Retry after a delay
+                setTimeout(() => {
+                    if (typeof cast !== 'undefined' && cast.framework) {
+                        log('✅ Cast framework loaded on retry');
+                        initReceiver();
+                    }
+                }, 2000);
+            }
+        });
+
+        // Test with sample image on startup
+        setTimeout(() => {
+            log('🧪 Auto-testing with sample image in 3 seconds...');
+            testImage();
+        }, 3000);
     </script>
 </body>
 </html>
