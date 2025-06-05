@@ -12,13 +12,13 @@
             font-family: monospace;
             overflow: hidden;
         }
-        
+
         .container {
             position: relative;
             width: 100vw;
             height: 100vh;
         }
-        
+
         .screen-display {
             position: absolute;
             top: 0;
@@ -30,13 +30,13 @@
             align-items: center;
             justify-content: center;
         }
-        
+
         .screen-image {
             max-width: 100%;
             max-height: 100%;
             object-fit: contain;
         }
-        
+
         .status-overlay {
             position: absolute;
             top: 20px;
@@ -48,13 +48,13 @@
             font-size: 14px;
             z-index: 1000;
         }
-        
+
         .waiting-message {
             text-align: center;
             color: #fff;
             font-size: 24px;
         }
-        
+
         .error { color: #f00; }
         .success { color: #0f0; }
         .warning { color: #ff0; }
@@ -68,10 +68,10 @@
                 <small>App ID: 7D1A32C2</small>
             </div>
         </div>
-        
+
         <div id="statusOverlay" class="status-overlay">
             <div id="status">🔄 Initializing...</div>
-            <div id="stats">Frames: 0 | FPS: 0 | Chunks: 0</div>
+            <div id="stats">Frames: 0 | FPS: 0 | Size: 0 KB</div>
         </div>
     </div>
 
@@ -83,183 +83,152 @@
                 this.statsEl = document.getElementById('stats');
                 this.screenDisplayEl = document.getElementById('screenDisplay');
                 this.currentImageEl = null;
-                
+
                 // Statistics
                 this.frameCount = 0;
-                this.chunkCount = 0;
                 this.lastFpsTime = Date.now();
                 this.fpsCounter = 0;
                 this.currentFps = 0;
-                
-                // Chunked frame assembly
-                this.frameChunks = new Map(); // frameId -> chunks array
-                this.frameMetadata = new Map(); // frameId -> {totalChunks, receivedChunks}
-                
+                this.lastMessageSize = 0;
+
                 this.init();
+
+                // Debug - check connection
+                console.log('🚀 ScreenMirrorReceiver initialized - IMPROVED VERSION');
             }
-            
+
             init() {
                 try {
-                    this.log('🚀 Starting Screen Mirror Receiver');
-                    
-                    const castReceiverContext = cast.framework.CastReceiverContext.getInstance();
-                    
+                    console.log('🚀 Starting Screen Mirror Receiver');
+                    this.updateStatus('Initializing receiver...');
+
+                    const options = new cast.framework.CastReceiverOptions();
+                    options.disableIdleTimeout = true;
+                    options.maxInactivity = 3600; // 1 hour
+
+                    const context = cast.framework.CastReceiverContext.getInstance();
+
                     // Handle connections
-                    castReceiverContext.addEventListener(
+                    context.addEventListener(
                         cast.framework.system.EventType.SENDER_CONNECTED,
                         (event) => {
-                            this.log(`📱 Sender connected: ${event.senderId}`, 'success');
+                            console.log(`📱 Sender connected: ${event.senderId}`);
                             this.updateStatus('✅ Connected - Ready for screen mirroring');
                         }
                     );
-                    
-                    castReceiverContext.addEventListener(
+
+                    context.addEventListener(
                         cast.framework.system.EventType.SENDER_DISCONNECTED,
                         (event) => {
-                            this.log(`📱 Sender disconnected: ${event.senderId}`, 'warning');
+                            console.log(`📱 Sender disconnected: ${event.senderId}`);
                             this.updateStatus('❌ Sender disconnected');
                             this.clearScreen();
                         }
                     );
-                    
-                    castReceiverContext.addEventListener(
+
+                    context.addEventListener(
                         cast.framework.system.EventType.READY,
                         () => {
-                            this.log('✅ Cast Receiver ready for screen mirroring', 'success');
+                            console.log('✅ Cast Receiver ready for screen mirroring');
                             this.updateStatus('🎯 Ready for connections');
                         }
                     );
-                    
+
                     // Listen for screen frame messages
-                    castReceiverContext.addCustomMessageListener(
+                    context.addCustomMessageListener(
                         'urn:x-cast:com.isvisoft.flutter_screen_recording',
-                        (customEvent) => {
-                            this.handleMessage(customEvent);
+                        (event) => {
+                            this.handleMessage(event);
                         }
                     );
-                    
+
                     // Start the receiver
-                    const options = new cast.framework.CastReceiverOptions();
-                    options.disableIdleTimeout = true;
-                    options.maxInactivity = 3600; // 1 hour
-                    
-                    castReceiverContext.start(options);
-                    
+                    context.start(options);
+
                     // Start stats update interval
                     setInterval(() => this.updateStats(), 1000);
-                    
+
                 } catch (error) {
-                    this.log(`❌ Initialization error: ${error.message}`, 'error');
-                    this.updateStatus('❌ Failed to initialize');
+                    console.error(`❌ Initialization error: ${error.message}`);
+                    this.updateStatus(`❌ Failed to initialize: ${error.message}`);
                 }
             }
-            
-            handleMessage(customEvent) {
+
+            handleMessage(event) {
                 try {
-                    const message = JSON.parse(customEvent.data);
-                    
+                    const message = JSON.parse(event.data);
+                    console.log(`📨 Received message type: ${message.type}`);
+
                     switch (message.type) {
                         case 'screen_frame':
-                            this.handleSingleFrame(message);
+                            this.handleScreenFrame(message);
                             break;
-                            
-                        case 'screen_frame_chunk':
-                            this.handleFrameChunk(message);
-                            break;
-                            
+
                         case 'control':
                             this.handleControlMessage(message);
                             break;
-                            
+
                         default:
-                            this.log(`⚠️ Unknown message type: ${message.type}`, 'warning');
+                            console.warn(`⚠️ Unknown message type: ${message.type}`);
                     }
-                    
+
                 } catch (e) {
-                    this.log(`❌ Error parsing message: ${e.message}`, 'error');
+                    console.error(`❌ Error parsing message: ${e.message}`);
+                    this.updateStatus(`❌ Error: ${e.message}`);
                 }
             }
-            
-            handleSingleFrame(message) {
+
+            handleScreenFrame(message) {
                 try {
-                    this.displayFrame(message.data, message.width, message.height);
+                    if (!message.data) {
+                        console.warn('⚠️ Received screen frame without data');
+                        return;
+                    }
+
+                    this.displayFrame(message.data);
+                    this.lastMessageSize = message.data.length;
                     this.frameCount++;
                     this.fpsCounter++;
-                    
+
                 } catch (e) {
-                    this.log(`❌ Error handling single frame: ${e.message}`, 'error');
+                    console.error(`❌ Error handling screen frame: ${e.message}`);
+                    this.updateStatus(`❌ Frame error: ${e.message}`);
                 }
             }
-            
-            handleFrameChunk(message) {
-                try {
-                    const { frameId, chunkIndex, totalChunks, data } = message;
-                    
-                    // Initialize frame data if first chunk
-                    if (!this.frameChunks.has(frameId)) {
-                        this.frameChunks.set(frameId, new Array(totalChunks));
-                        this.frameMetadata.set(frameId, { totalChunks, receivedChunks: 0 });
-                    }
-                    
-                    // Store chunk
-                    this.frameChunks.get(frameId)[chunkIndex] = data;
-                    const metadata = this.frameMetadata.get(frameId);
-                    metadata.receivedChunks++;
-                    this.chunkCount++;
-                    
-                    // Check if frame is complete
-                    if (metadata.receivedChunks === metadata.totalChunks) {
-                        this.assembleAndDisplayFrame(frameId);
-                    }
-                    
-                } catch (e) {
-                    this.log(`❌ Error handling chunk: ${e.message}`, 'error');
-                }
-            }
-            
-            assembleAndDisplayFrame(frameId) {
-                try {
-                    const chunks = this.frameChunks.get(frameId);
-                    const combinedData = chunks.join('');
-                    
-                    // Clean up
-                    this.frameChunks.delete(frameId);
-                    this.frameMetadata.delete(frameId);
-                    
-                    // Display assembled frame
-                    this.displayFrame(combinedData);
-                    this.frameCount++;
-                    this.fpsCounter++;
-                    
-                } catch (e) {
-                    this.log(`❌ Error assembling frame: ${e.message}`, 'error');
-                }
-            }
-            
-            displayFrame(base64Data, width, height) {
+
+            displayFrame(base64Data) {
                 try {
                     // Create or update image element
                     if (!this.currentImageEl) {
+                        console.log('🖼️ Creating new image element for display');
                         this.currentImageEl = document.createElement('img');
                         this.currentImageEl.className = 'screen-image';
                         this.screenDisplayEl.innerHTML = '';
                         this.screenDisplayEl.appendChild(this.currentImageEl);
                     }
-                    
+
                     // Update image source
                     this.currentImageEl.src = `data:image/jpeg;base64,${base64Data}`;
-                    
-                    // Update status to show active mirroring
-                    this.updateStatus('📺 Screen mirroring active');
-                    
+
+                    // Add onload and onerror handlers for debugging
+                    this.currentImageEl.onload = () => {
+                        console.log(`✅ Frame loaded: ${this.currentImageEl.naturalWidth}x${this.currentImageEl.naturalHeight}`);
+                        this.updateStatus('📺 Screen mirroring active');
+                    };
+
+                    this.currentImageEl.onerror = () => {
+                        console.error('❌ Error loading image');
+                        this.updateStatus('❌ Error displaying frame');
+                    };
+
                 } catch (e) {
-                    this.log(`❌ Error displaying frame: ${e.message}`, 'error');
+                    console.error(`❌ Error displaying frame: ${e.message}`);
                 }
             }
-            
+
             handleControlMessage(message) {
-                this.log(`🎮 Control: ${message.action}`, 'success');
-                
+                console.log(`🎮 Control: ${message.action}`);
+
                 switch (message.action) {
                     case 'display_paused':
                         this.updateStatus('⏸️ Display paused');
@@ -273,8 +242,9 @@
                         break;
                 }
             }
-            
+
             clearScreen() {
+                console.log('🧹 Clearing screen');
                 this.screenDisplayEl.innerHTML = `
                     <div class="waiting-message">
                         🎬 Ready for Screen Mirroring<br>
@@ -283,7 +253,7 @@
                 `;
                 this.currentImageEl = null;
             }
-            
+
             updateStats() {
                 const now = Date.now();
                 if (now - this.lastFpsTime >= 1000) {
@@ -291,22 +261,24 @@
                     this.fpsCounter = 0;
                     this.lastFpsTime = now;
                 }
-                
-                this.statsEl.textContent = 
-                    `Frames: ${this.frameCount} | FPS: ${this.currentFps} | Chunks: ${this.chunkCount}`;
+
+                const sizeKb = Math.round(this.lastMessageSize / 1024);
+                this.statsEl.textContent =
+                    `Frames: ${this.frameCount} | FPS: ${this.currentFps} | Size: ${sizeKb} KB`;
             }
-            
+
             updateStatus(text) {
+                console.log(`📊 Status: ${text}`);
                 this.statusEl.textContent = text;
             }
-            
-            log(message, type = 'success') {
-                console.log(`[${new Date().toLocaleTimeString()}] ${message}`);
-            }
         }
-        
+
         // Initialize the receiver
-        new ScreenMirrorReceiver();
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('DOM loaded, initializing receiver');
+            window.receiver = new ScreenMirrorReceiver();
+        });
     </script>
 </body>
 </html>
+
